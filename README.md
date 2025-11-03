@@ -52,7 +52,7 @@ Admin only:
 
 - `/top` — top CPU/memory consuming processes
 - `/docker` — running containers and status
-- `/docker-restart <name>` — restart a Docker container
+- `/docker_restart <name>` — restart a Docker container
 - `/ping <host>` — connectivity test (`8.8.8.8` by default)
 - `/reboot` — reboot the server (requires `sudo` privileges)
 

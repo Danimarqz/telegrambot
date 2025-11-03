@@ -97,7 +97,7 @@ func registerCommands(registry *commands.Registry, collector *metrics.Collector)
 
 	registry.Handle("top", "Procesos con mayor uso de CPU/RAM", commands.ScopeAdminOnly, commands.Top, commands.AdminOnly())
 	registry.Handle("docker", "Contenedores activos y estado", commands.ScopeAdminOnly, commands.Docker, commands.AdminOnly())
-	registry.Handle("docker-restart", "Reinicia un contenedor Docker", commands.ScopeAdminOnly, commands.DockerRestart, commands.AdminOnly())
+	registry.Handle("docker_restart", "Reinicia un contenedor Docker", commands.ScopeAdminOnly, commands.DockerRestart, commands.AdminOnly())
 	registry.Handle("ping", "Prueba de conectividad", commands.ScopeAdminOnly, commands.Ping, commands.AdminOnly())
 	registry.Handle("reboot", "Reinicia el servidor", commands.ScopeAdminOnly, commands.Reboot, commands.AdminOnly())
 }

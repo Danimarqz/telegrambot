@@ -11,7 +11,7 @@ import (
 func DockerRestart(ctx *Context) error {
 	args := ctx.ArgsList()
 	if len(args) == 0 {
-		return ctx.Reply("Uso: /docker-restart <nombre_contenedor>")
+		return ctx.Reply("Uso: /docker_restart <nombre_contenedor>")
 	}
 
 	container := args[0]
