@@ -100,6 +100,7 @@ type GPUStats struct {
 	MemoryUsed  string
 	MemoryTotal string
 	Temperature string
+	Power       string
 }
 
 type HostStats struct {
@@ -340,7 +341,7 @@ func (c *Collector) collectDiskIO(ctx context.Context) (DiskIOStats, error) {
 
 func collectGPU(ctx context.Context) ([]GPUStats, error) {
 	cmd := exec.CommandContext(ctx, "nvidia-smi",
-		"--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu",
+		"--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
 		"--format=csv,noheader,nounits")
 
 	output, err := cmd.Output()
@@ -356,8 +357,15 @@ func collectGPU(ctx context.Context) ([]GPUStats, error) {
 	stats := make([]GPUStats, 0, len(lines))
 	for _, line := range lines {
 		fields := bytes.Split(bytes.TrimSpace(line), []byte{','})
-		if len(fields) < 6 {
+		if len(fields) < 7 {
 			continue
+		}
+
+		power := strings.TrimSpace(string(bytes.TrimSpace(fields[6])))
+		if power != "" && !strings.EqualFold(power, "N/A") {
+			power += "W"
+		} else {
+			power = ""
 		}
 
 		stats = append(stats, GPUStats{
@@ -367,6 +375,7 @@ func collectGPU(ctx context.Context) ([]GPUStats, error) {
 			MemoryUsed:  string(bytes.TrimSpace(fields[3])) + "MiB",
 			MemoryTotal: string(bytes.TrimSpace(fields[4])) + "MiB",
 			Temperature: string(bytes.TrimSpace(fields[5])),
+			Power:       power,
 		})
 	}
 
@@ -390,14 +399,14 @@ func collectHost(ctx context.Context) (HostStats, error) {
 // FormatHTML renders the stats into Telegram-ready HTML.
 func FormatHTML(stats Stats) string {
 	var buf strings.Builder
-	buf.WriteString("<b>📊 Estado del Servidor</b>")
+	buf.WriteString("<b>📊 Estado del Servidor</b>\n")
 
 	writeSection := func(icon, title string, lines []string) {
 		if len(lines) == 0 {
 			return
 		}
 
-		buf.WriteString("\n\n")
+		buf.WriteString("\n")
 		buf.WriteString(icon)
 		buf.WriteString(" <b>")
 		buf.WriteString(html.EscapeString(title))
@@ -426,27 +435,27 @@ func FormatHTML(stats Stats) string {
 
 	if stats.Memory.Total > 0 {
 		memLines := []string{
-			fmt.Sprintf("RAM: %s/%s (%.1f%%)", human(stats.Memory.Used), human(stats.Memory.Total), stats.Memory.UsedPercent),
+			fmt.Sprintf("RAM: %s/%s => (%.1f%%)", human(stats.Memory.Used), human(stats.Memory.Total), stats.Memory.UsedPercent),
 		}
 		if stats.Memory.SwapTotal > 0 {
-			memLines = append(memLines, fmt.Sprintf("Swap: %s/%s (%.1f%%)", human(stats.Memory.SwapUsed), human(stats.Memory.SwapTotal), stats.Memory.SwapPercent))
+			memLines = append(memLines, fmt.Sprintf("Swap: %s/%s => (%.1f%%)", human(stats.Memory.SwapUsed), human(stats.Memory.SwapTotal), stats.Memory.SwapPercent))
 		}
 		writeSection("🧠", "Memoria", memLines)
 	}
 
 	netLines := make([]string, 0, 2)
 	if stats.Network.SentPerSec > 0 || stats.Network.ReceivedPerSec > 0 {
-		netLines = append(netLines, fmt.Sprintf("Red: ↑%s/s ↓%s/s", human(stats.Network.SentPerSec), human(stats.Network.ReceivedPerSec)))
+		netLines = append(netLines, fmt.Sprintf("Red: ↑ %s/s <=> ↓ %s/s", human(stats.Network.SentPerSec), human(stats.Network.ReceivedPerSec)))
 	}
 	if stats.IO.ReadPerSec > 0 || stats.IO.WritePerSec > 0 {
-		netLines = append(netLines, fmt.Sprintf("Disco: R:%s/s W:%s/s", human(stats.IO.ReadPerSec), human(stats.IO.WritePerSec)))
+		netLines = append(netLines, fmt.Sprintf("Disco: R %s/s <=> W %s/s", human(stats.IO.ReadPerSec), human(stats.IO.WritePerSec)))
 	}
 	writeSection("🌐", "Red & IO", netLines)
 
 	if len(stats.Disks) > 0 {
 		diskLines := make([]string, 0, len(stats.Disks))
 		for _, disk := range stats.Disks {
-			diskLines = append(diskLines, fmt.Sprintf("%s %s/%s (%.1f%%)", disk.Mount, human(disk.Used), human(disk.Total), disk.UsedPercent))
+			diskLines = append(diskLines, fmt.Sprintf("%s %s/%s => (%.1f%%)", disk.Mount, human(disk.Used), human(disk.Total), disk.UsedPercent))
 		}
 		writeSection("💾", "Almacenamiento", diskLines)
 	}
@@ -454,7 +463,18 @@ func FormatHTML(stats Stats) string {
 	if len(stats.GPU) > 0 {
 		gpuLines := make([]string, 0, len(stats.GPU))
 		for _, gpu := range stats.GPU {
-			gpuLines = append(gpuLines, fmt.Sprintf("GPU%s %s • Util %s • Mem %s/%s • Temp %sC", gpu.Index, gpu.Name, gpu.Utilization, gpu.MemoryUsed, gpu.MemoryTotal, gpu.Temperature))
+			var entry strings.Builder
+			if gpu.Index != "" {
+				entry.WriteString(fmt.Sprintf("GPU%s %s", gpu.Index, gpu.Name))
+			} else {
+				entry.WriteString(gpu.Name)
+			}
+			entry.WriteString(fmt.Sprintf("\n• Util %s - Mem %s / %s", gpu.Utilization, gpu.MemoryUsed, gpu.MemoryTotal))
+			entry.WriteString(fmt.Sprintf("\n• Temp %sºC", gpu.Temperature))
+			if gpu.Power != "" {
+				entry.WriteString(fmt.Sprintf("\n• Potencia %s", gpu.Power))
+			}
+			gpuLines = append(gpuLines, entry.String())
 		}
 		writeSection("🖥️", "GPU", gpuLines)
 	} else {
@@ -462,7 +482,7 @@ func FormatHTML(stats Stats) string {
 	}
 
 	if stats.Host.Uptime > 0 {
-		writeSection("⏱️", "Uptime", []string{fmt.Sprintf("En marcha: %s", stats.Host.Uptime.Truncate(time.Second))})
+		writeSection("⏱️", "Uptime", []string{fmt.Sprintf("En marcha: %s", formatUptime(stats.Host.Uptime))})
 	}
 
 	if len(stats.Warnings) > 0 {
@@ -486,4 +506,27 @@ func human(bytes uint64) string {
 		}
 	}
 	return fmt.Sprintf("%.1f%cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+func formatUptime(d time.Duration) string {
+	if d < 0 {
+		d = -d
+	}
+	d = d.Truncate(time.Second)
+
+	hours := d / time.Hour
+	d -= hours * time.Hour
+	minutes := d / time.Minute
+	d -= minutes * time.Minute
+	seconds := d / time.Second
+
+	parts := make([]string, 0, 3)
+	if hours > 0 {
+		parts = append(parts, fmt.Sprintf("%dh", hours))
+	}
+	if minutes > 0 || hours > 0 {
+		parts = append(parts, fmt.Sprintf("%dm", minutes))
+	}
+	parts = append(parts, fmt.Sprintf("%ds", seconds))
+	return strings.Join(parts, " ")
 }
