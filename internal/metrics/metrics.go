@@ -390,55 +390,86 @@ func collectHost(ctx context.Context) (HostStats, error) {
 // FormatHTML renders the stats into Telegram-ready HTML.
 func FormatHTML(stats Stats) string {
 	var buf strings.Builder
-	buf.WriteString("<b>Server Stats</b>\n\n")
+	buf.WriteString("<b>📊 Estado del Servidor</b>")
 
-	if stats.CPU.Cores > 0 {
-		buf.WriteString(fmt.Sprintf("CPU: %.1f%% | Load %.2f / %.2f / %.2f (%.0f%% uso global)\n",
-			stats.CPU.Usage, stats.CPU.Load1, stats.CPU.Load5, stats.CPU.Load15, stats.CPU.LoadRatio))
-	}
-
-	if stats.Memory.Total > 0 {
-		buf.WriteString(fmt.Sprintf("Mem: %s/%s (%.1f%%) | Swap: %s/%s (%.1f%%)\n",
-			human(stats.Memory.Used), human(stats.Memory.Total), stats.Memory.UsedPercent,
-			human(stats.Memory.SwapUsed), human(stats.Memory.SwapTotal), stats.Memory.SwapPercent))
-	}
-
-	if stats.Network.SentPerSec > 0 || stats.Network.ReceivedPerSec > 0 || (stats.IO.ReadPerSec > 0 || stats.IO.WritePerSec > 0) {
-		buf.WriteString(fmt.Sprintf("Net Up %s/s Down %s/s | IO R:%s/s W:%s/s\n",
-			human(stats.Network.SentPerSec), human(stats.Network.ReceivedPerSec),
-			human(stats.IO.ReadPerSec), human(stats.IO.WritePerSec)))
-	}
-
-	if len(stats.Disks) > 0 {
-		for _, disk := range stats.Disks {
-			buf.WriteString(fmt.Sprintf("%s %s/%s (%.1f%%)\n",
-				disk.Mount, human(disk.Used), human(disk.Total), disk.UsedPercent))
+	writeSection := func(icon, title string, lines []string) {
+		if len(lines) == 0 {
+			return
 		}
-	}
 
-	if len(stats.GPU) > 0 {
-		for _, gpu := range stats.GPU {
-			buf.WriteString(fmt.Sprintf("GPU%s %s | Util %s | Mem %s/%s | Temp %sC\n",
-				gpu.Index, gpu.Name, gpu.Utilization, gpu.MemoryUsed, gpu.MemoryTotal, gpu.Temperature))
-		}
-	} else {
-		buf.WriteString("GPU: no disponible\n")
-	}
+		buf.WriteString("\n\n")
+		buf.WriteString(icon)
+		buf.WriteString(" <b>")
+		buf.WriteString(html.EscapeString(title))
+		buf.WriteString("</b>\n")
 
-	if stats.Host.Uptime > 0 {
-		buf.WriteString(fmt.Sprintf("Uptime: %s\n", stats.Host.Uptime.Truncate(time.Second)))
-	}
-
-	if len(stats.Warnings) > 0 {
-		buf.WriteString("\n<b>Advertencias</b>\n")
-		for _, warning := range stats.Warnings {
-			buf.WriteString("- ")
-			buf.WriteString(html.EscapeString(warning))
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			buf.WriteString("• ")
+			buf.WriteString(html.EscapeString(line))
 			buf.WriteByte('\n')
 		}
 	}
 
-	return buf.String()
+	if stats.CPU.Cores > 0 {
+		cpuLines := []string{
+			fmt.Sprintf("Uso: %.1f%%", stats.CPU.Usage),
+			fmt.Sprintf("Carga: %.2f / %.2f / %.2f", stats.CPU.Load1, stats.CPU.Load5, stats.CPU.Load15),
+		}
+		if stats.CPU.LoadRatio > 0 {
+			cpuLines = append(cpuLines, fmt.Sprintf("Uso global: %.0f%%", stats.CPU.LoadRatio))
+		}
+		writeSection("⚙️", "CPU", cpuLines)
+	}
+
+	if stats.Memory.Total > 0 {
+		memLines := []string{
+			fmt.Sprintf("RAM: %s/%s (%.1f%%)", human(stats.Memory.Used), human(stats.Memory.Total), stats.Memory.UsedPercent),
+		}
+		if stats.Memory.SwapTotal > 0 {
+			memLines = append(memLines, fmt.Sprintf("Swap: %s/%s (%.1f%%)", human(stats.Memory.SwapUsed), human(stats.Memory.SwapTotal), stats.Memory.SwapPercent))
+		}
+		writeSection("🧠", "Memoria", memLines)
+	}
+
+	netLines := make([]string, 0, 2)
+	if stats.Network.SentPerSec > 0 || stats.Network.ReceivedPerSec > 0 {
+		netLines = append(netLines, fmt.Sprintf("Red: ↑%s/s ↓%s/s", human(stats.Network.SentPerSec), human(stats.Network.ReceivedPerSec)))
+	}
+	if stats.IO.ReadPerSec > 0 || stats.IO.WritePerSec > 0 {
+		netLines = append(netLines, fmt.Sprintf("Disco: R:%s/s W:%s/s", human(stats.IO.ReadPerSec), human(stats.IO.WritePerSec)))
+	}
+	writeSection("🌐", "Red & IO", netLines)
+
+	if len(stats.Disks) > 0 {
+		diskLines := make([]string, 0, len(stats.Disks))
+		for _, disk := range stats.Disks {
+			diskLines = append(diskLines, fmt.Sprintf("%s %s/%s (%.1f%%)", disk.Mount, human(disk.Used), human(disk.Total), disk.UsedPercent))
+		}
+		writeSection("💾", "Almacenamiento", diskLines)
+	}
+
+	if len(stats.GPU) > 0 {
+		gpuLines := make([]string, 0, len(stats.GPU))
+		for _, gpu := range stats.GPU {
+			gpuLines = append(gpuLines, fmt.Sprintf("GPU%s %s • Util %s • Mem %s/%s • Temp %sC", gpu.Index, gpu.Name, gpu.Utilization, gpu.MemoryUsed, gpu.MemoryTotal, gpu.Temperature))
+		}
+		writeSection("🖥️", "GPU", gpuLines)
+	} else {
+		writeSection("🖥️", "GPU", []string{"GPU: no disponible"})
+	}
+
+	if stats.Host.Uptime > 0 {
+		writeSection("⏱️", "Uptime", []string{fmt.Sprintf("En marcha: %s", stats.Host.Uptime.Truncate(time.Second))})
+	}
+
+	if len(stats.Warnings) > 0 {
+		writeSection("⚠️", "Advertencias", stats.Warnings)
+	}
+
+	return strings.TrimSpace(buf.String())
 }
 
 func human(bytes uint64) string {

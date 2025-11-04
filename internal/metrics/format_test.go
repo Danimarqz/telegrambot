@@ -54,18 +54,26 @@ func TestFormatHTMLWithGPUAndWarnings(t *testing.T) {
 	output := FormatHTML(stats)
 
 	mustContain := []string{
-		"CPU: 72.5%",
-		"Load 1.23 / 0.98 / 0.75",
-		"Mem: 8.0GB/16.0GB (50.0%)",
+		"<b>📊 Estado del Servidor</b>",
+		"⚙️ <b>CPU</b>",
+		"• Uso: 72.5%",
+		"• Carga: 1.23 / 0.98 / 0.75",
+		"• Uso global: 65%",
+		"🧠 <b>Memoria</b>",
+		"RAM: 8.0GB/16.0GB (50.0%)",
 		"Swap: 512.0MB/1.0GB (50.0%)",
-		"Net Up 12.0KB/s Down 24.0KB/s",
-		"IO R:1.0KB/s W:2.0KB/s",
+		"🌐 <b>Red &amp; IO</b>",
+		"Red: ↑12.0KB/s ↓24.0KB/s",
+		"Disco: R:1.0KB/s W:2.0KB/s",
+		"💾 <b>Almacenamiento</b>",
 		"/ 90.0GB/128.0GB (70.3%)",
-		"GPU0 RTX 4090 | Util 85 | Mem 1000MiB/12000MiB | Temp 65C",
-		"Uptime: 3h4m5s",
-		"<b>Advertencias</b>",
-		"GPU: unavailable",
-		"Disk: slow",
+		"🖥️ <b>GPU</b>",
+		"GPU0 RTX 4090 • Util 85 • Mem 1000MiB/12000MiB • Temp 65C",
+		"⏱️ <b>Uptime</b>",
+		"• En marcha: 3h4m5s",
+		"⚠️ <b>Advertencias</b>",
+		"• GPU: unavailable",
+		"• Disk: slow",
 	}
 
 	for _, needle := range mustContain {
