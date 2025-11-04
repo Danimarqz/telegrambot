@@ -133,7 +133,7 @@ func (r *Registry) List(scope CommandScope) map[string]string {
 		if cmd.HideFromHelp {
 			continue
 		}
-		if cmd.Scope != scope && !(scope == ScopeAdminOnly && cmd.Scope == ScopeAdminOnly) {
+		if cmd.Scope != scope {
 			continue
 		}
 		if cmd.Description != "" {

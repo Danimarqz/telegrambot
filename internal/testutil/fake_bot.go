@@ -38,7 +38,10 @@ func NewFakeHTTPClient(responses ...FakeResponse) *FakeHTTPClient {
 // Do stores the request and returns the next queued response.
 func (f *FakeHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	bodyBytes, _ := io.ReadAll(req.Body)
-	req.Body.Close()
+	closeErr := req.Body.Close()
+	if closeErr != nil {
+		return nil, closeErr
+	}
 
 	values, _ := url.ParseQuery(string(bodyBytes))
 	endpoint := path.Base(req.URL.Path)

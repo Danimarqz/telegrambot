@@ -42,11 +42,15 @@ func DockerLogsSubscribe(ctx *Context) error {
 
 	go func() {
 		defer cancel()
-		if err := streamDockerLogs(subscriptionCtx, bot, runner, chatID, container, timeout); err != nil {
+		streamErr := streamDockerLogs(subscriptionCtx, bot, runner, chatID, container, timeout)
+		if streamErr != nil {
 			if logger != nil {
-				logger.Printf("docker logs subscription error: %v", err)
+				logger.Printf("docker logs subscription error: %v", streamErr)
 			}
-			notifyError(bot, chatID, fmt.Sprintf("Suscripcion cancelada: %v", err))
+			errNotify := notifyError(bot, chatID, fmt.Sprintf("Suscripcion cancelada: %v", streamErr))
+			if errNotify != nil && logger != nil {
+				logger.Printf("failed to send error notification: %v", errNotify)
+			}
 		}
 	}()
 
@@ -146,8 +150,8 @@ func sendLines(bot *tgbotapi.BotAPI, chatID int64, header string, lines []string
 	return notifyPre(bot, chatID, fmt.Sprintf("%s\n%s", header, content))
 }
 
-func notifyError(bot *tgbotapi.BotAPI, chatID int64, message string) {
-	notifyText(bot, chatID, fmt.Sprintf("[ALERTA] %s", message))
+func notifyError(bot *tgbotapi.BotAPI, chatID int64, message string) error {
+	return notifyText(bot, chatID, fmt.Sprintf("[ALERTA] %s", message))
 }
 
 func notifyInfo(bot *tgbotapi.BotAPI, chatID int64, message string) error {
