@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"serverbot/internal/app"
 	"serverbot/internal/commands"
@@ -64,6 +65,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	})
 
 	registry.Use(logCommand(r.logger))
+	r.startAlerts(ctx, botAPI, collector, cfg)
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
@@ -98,8 +100,11 @@ func registerCommands(registry *commands.Registry, collector *metrics.Collector)
 	registry.Handle("top", "Procesos con mayor uso de CPU/RAM", commands.ScopeAdminOnly, commands.Top, commands.AdminOnly())
 	registry.Handle("docker", "Contenedores activos y estado", commands.ScopeAdminOnly, commands.Docker, commands.AdminOnly())
 	registry.Handle("docker_exec", "Ejecuta un comando en un contenedor Docker", commands.ScopeAdminOnly, commands.DockerExec, commands.AdminOnly())
-	registry.Handle("docker_logs", "Últimas 20 líneas del log de un contenedor", commands.ScopeAdminOnly, commands.DockerLogs, commands.AdminOnly())
+	registry.Handle("docker_logs", "Ultimas 20 lineas del log de un contenedor", commands.ScopeAdminOnly, commands.DockerLogs, commands.AdminOnly())
+	registry.Handle("logs_suscripcion", "Envia actualizaciones periodicas de logs", commands.ScopeAdminOnly, commands.DockerLogsSubscribe, commands.AdminOnly())
+	registry.Handle("docker_stats", "Uso de recursos de un contenedor", commands.ScopeAdminOnly, commands.DockerStats, commands.AdminOnly())
 	registry.Handle("docker_restart", "Reinicia un contenedor Docker", commands.ScopeAdminOnly, commands.DockerRestart, commands.AdminOnly())
+	registry.Handle("service_status", "Estado de un servicio systemd", commands.ScopeAdminOnly, commands.ServiceStatus, commands.AdminOnly())
 	registry.Handle("ping", "Prueba de conectividad", commands.ScopeAdminOnly, commands.Ping, commands.AdminOnly())
 	registry.Handle("reboot", "Reinicia el servidor", commands.ScopeAdminOnly, commands.Reboot, commands.AdminOnly())
 }
@@ -113,4 +118,96 @@ func logCommand(logger *log.Logger) commands.Middleware {
 			return next(ctx)
 		}
 	}
+}
+
+func (r *Runner) startAlerts(ctx context.Context, bot *tgbotapi.BotAPI, collector *metrics.Collector, cfg app.Config) {
+	if !cfg.Alerts.Enabled || bot == nil || collector == nil {
+		return
+	}
+
+	if cfg.AdminID == 0 {
+		return
+	}
+
+	state := make(map[string]time.Time)
+
+	go func() {
+		// goroutine (multithread)
+		ticker := time.NewTicker(cfg.Alerts.Interval)
+		defer ticker.Stop()
+		// if the app is closed, exit the goroutine (ctx.Done())
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// each interval, runAlertCycle
+				r.runAlertCycle(ctx, bot, collector, cfg, state)
+			}
+		}
+	}()
+}
+
+func (r *Runner) runAlertCycle(ctx context.Context, bot *tgbotapi.BotAPI, collector *metrics.Collector, cfg app.Config, state map[string]time.Time) {
+	alertCtx, cancel := context.WithTimeout(ctx, cfg.CommandTimeout)
+	defer cancel()
+
+	stats, err := collector.Collect(alertCtx)
+	if err != nil {
+		if r.logger != nil {
+			r.logger.Printf("alert collect error: %v", err)
+		}
+		return
+	}
+
+	type alert struct {
+		key  string
+		body string
+	}
+
+	var alerts []alert
+	if stats.CPU.Usage >= cfg.Alerts.CPUThreshold && stats.CPU.Usage > 0 {
+		alerts = append(alerts, alert{
+			key:  "cpu",
+			body: fmt.Sprintf("[⚠️ ALERTA] CPU alta: %.1f%% (umbral %.0f%%)", stats.CPU.Usage, cfg.Alerts.CPUThreshold),
+		})
+	}
+	if stats.Memory.UsedPercent >= cfg.Alerts.MemoryThreshold && stats.Memory.UsedPercent > 0 {
+		alerts = append(alerts, alert{
+			key:  "memory",
+			body: fmt.Sprintf("[⚠️ ALERTA] RAM alta: %.1f%% (umbral %.0f%%)", stats.Memory.UsedPercent, cfg.Alerts.MemoryThreshold),
+		})
+	}
+	for _, disk := range stats.Disks {
+		if disk.UsedPercent >= cfg.Alerts.DiskThreshold && disk.UsedPercent > 0 {
+			alerts = append(alerts, alert{
+				key:  "disk:" + disk.Mount,
+				body: fmt.Sprintf("[⚠️ ALERTA] Disco %s al %.1f%% (umbral %.0f%%)", disk.Mount, disk.UsedPercent, cfg.Alerts.DiskThreshold),
+			})
+		}
+	}
+
+	now := time.Now()
+	for _, a := range alerts {
+		if last, ok := state[a.key]; ok && now.Sub(last) < cfg.Alerts.Cooldown {
+			continue
+		}
+
+		if err := sendAlert(bot, cfg.AdminID, a.body); err != nil && r.logger != nil {
+			r.logger.Printf("alert send error: %v", err)
+		} else {
+			state[a.key] = now
+		}
+	}
+}
+
+func sendAlert(bot *tgbotapi.BotAPI, chatID int64, message string) error {
+	if bot == nil || chatID == 0 || message == "" {
+		return nil
+	}
+
+	msg := tgbotapi.NewMessage(chatID, message)
+	_, err := bot.Send(msg)
+	return err
 }

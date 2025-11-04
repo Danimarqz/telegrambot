@@ -9,6 +9,11 @@ import (
 
 // Reboot triggers a server reboot.
 func Reboot(ctx *Context) error {
+	args := ctx.ArgsList()
+	if len(args) == 0 || strings.ToLower(args[0]) != "confirmar" {
+		return ctx.Reply("[ALERTA] Este comando reiniciara el servidor. Ejecuta /reboot confirmar para continuar.")
+	}
+
 	if err := ctx.Reply("Reiniciando servidor..."); err != nil {
 		return err
 	}
