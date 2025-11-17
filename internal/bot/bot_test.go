@@ -107,7 +107,7 @@ func TestRegisterCommandsCatalog(t *testing.T) {
 	}
 
 	admin := reg.List(commands.ScopeAdmin)
-	expectedAdmin := []string{"top", "docker", "docker_exec"}
+	expectedAdmin := []string{"top", "docker", "swap_mc_server"}
 	if len(admin) != len(expectedAdmin) {
 		t.Fatalf("admin commands length = %d, want %d", len(admin), len(expectedAdmin))
 	}
@@ -118,7 +118,7 @@ func TestRegisterCommandsCatalog(t *testing.T) {
 	}
 
 	owner := reg.List(commands.ScopeOwner)
-	expectedOwner := []string{"docker_logs", "logs_suscripcion", "docker_stats", "docker_restart", "service_status", "ping", "reboot"}
+	expectedOwner := []string{"docker_exec", "docker_logs", "logs_suscripcion", "docker_stats", "docker_restart", "service_status", "ping", "reboot"}
 	if len(owner) != len(expectedOwner) {
 		t.Fatalf("owner commands length = %d, want %d", len(owner), len(expectedOwner))
 	}

@@ -24,8 +24,14 @@ func DockerExec(ctx *Context) error {
 	}
 
 	container := tokens[0]
-	if !ctx.IsOwner() && container != "mc-server" {
-		return ctx.Reply("Solo puedes ejecutar comando en el contenedor \"mc-server\".")
+	allowed := map[string]struct{}{
+		"mc-server":     {},
+		"mc-server-mod": {},
+	}
+	if !ctx.IsOwner() {
+		if _, ok := allowed[container]; !ok {
+			return ctx.Reply("Solo puedes ejecutar comando en el contenedor \"mc-server\" o \"mc-server-mod\".")
+		}
 	}
 	commandArgs := tokens[1:]
 

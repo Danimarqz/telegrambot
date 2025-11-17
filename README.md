@@ -30,6 +30,8 @@ Optional environment variables:
 | `ALERT_MEMORY_THRESHOLD`   | Memory usage percentage that triggers an alert (default `90`)                                |
 | `ALERT_DISK_THRESHOLD`     | Disk usage percentage that triggers an alert for any monitored mount (default `90`)          |
 | `ADMIN_IDS`                | Optional comma-separated admin chat IDs that can access elevated commands                    |
+| `MC_SERVER_RUN_ARGS`       | `docker run` arguments (after `run`) used to spin up `mc-server` when it is missing          |
+| `MC_SERVER_MOD_RUN_ARGS`   | `docker run` arguments (after `run`) used to spin up `mc-server-mod` when it is missing      |
 
 You can export them directly or load them from an `.env` file before starting the bot.
 
@@ -59,6 +61,7 @@ Admin (elevated):
 
 - `/top` - top CPU/memory consuming processes
 - `/docker` - running containers and status
+- `/swap_mc_server` - detiene el contenedor activo (`mc-server` o `mc-server-mod`) y arranca la otra variante (usa `MC_SERVER_RUN_ARGS`/`MC_SERVER_MOD_RUN_ARGS` cuando el contenedor destino no existe)
 
 Owner (single owner chat only):
 
