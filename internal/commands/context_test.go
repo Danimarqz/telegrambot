@@ -32,7 +32,7 @@ func newContext(bot *tgbotapi.BotAPI) *Context {
 	var buf bytes.Buffer
 	return &Context{
 		AppConfig: app.Config{
-			AdminID: 999,
+			OwnerID: 999,
 		},
 		Logger:         log.New(&buf, "", 0),
 		RequestContext: context.Background(),
@@ -137,18 +137,40 @@ func TestReplyWithoutMessage(t *testing.T) {
 
 func TestIsAdmin(t *testing.T) {
 	ctx := &Context{
-		AppConfig: app.Config{AdminID: 42},
+		AppConfig: app.Config{OwnerID: 42, AdminIDs: []int64{7}},
 		Update: tgbotapi.Update{
 			Message: &tgbotapi.Message{
-				Chat: &tgbotapi.Chat{ID: 42},
+				Chat: &tgbotapi.Chat{ID: 7},
 			},
 		},
 	}
 	if !ctx.IsAdmin() {
 		t.Fatalf("IsAdmin() = false, want true")
 	}
+	ctx.Update.Message.Chat.ID = 42
+	if !ctx.IsAdmin() {
+		t.Fatalf("IsAdmin() = false, want true for owner")
+	}
 	ctx.Update.Message.Chat.ID = 100
 	if ctx.IsAdmin() {
 		t.Fatalf("IsAdmin() = true, want false for non-admin")
+	}
+}
+
+func TestIsOwner(t *testing.T) {
+	ctx := &Context{
+		AppConfig: app.Config{OwnerID: 42},
+		Update: tgbotapi.Update{
+			Message: &tgbotapi.Message{
+				Chat: &tgbotapi.Chat{ID: 42},
+			},
+		},
+	}
+	if !ctx.IsOwner() {
+		t.Fatalf("IsOwner() = false, want true")
+	}
+	ctx.Update.Message.Chat.ID = 100
+	if ctx.IsOwner() {
+		t.Fatalf("IsOwner() = true, want false for non-owner")
 	}
 }

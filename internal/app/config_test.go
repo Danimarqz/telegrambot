@@ -7,7 +7,8 @@ import (
 
 func TestLoadConfigSuccess(t *testing.T) {
 	t.Setenv("TELEGRAM_BOT_TOKEN", "token")
-	t.Setenv("ADMIN_ID", "123")
+	t.Setenv("OWNER_ID", "123")
+	t.Setenv("ADMIN_IDS", " 777 , 888 ")
 	t.Setenv("DISK_TARGETS", "/var , /data")
 	t.Setenv("ENABLE_ALERTS", "yes")
 	t.Setenv("ALERT_INTERVAL", "2m")
@@ -24,8 +25,11 @@ func TestLoadConfigSuccess(t *testing.T) {
 	if cfg.Token != "token" {
 		t.Errorf("Token = %q, want %q", cfg.Token, "token")
 	}
-	if cfg.AdminID != 123 {
-		t.Errorf("AdminID = %d, want 123", cfg.AdminID)
+	if cfg.OwnerID != 123 {
+		t.Errorf("OwnerID = %d, want 123", cfg.OwnerID)
+	}
+	if len(cfg.AdminIDs) != 2 || cfg.AdminIDs[0] != 777 || cfg.AdminIDs[1] != 888 {
+		t.Fatalf("AdminIDs = %v, want [777 888]", cfg.AdminIDs)
 	}
 	wantTargets := []string{"/var", "/data"}
 	if len(cfg.DiskTargets) != len(wantTargets) {
@@ -58,21 +62,47 @@ func TestLoadConfigSuccess(t *testing.T) {
 
 func TestLoadConfigMissingValues(t *testing.T) {
 	t.Setenv("TELEGRAM_BOT_TOKEN", "")
+	t.Setenv("OWNER_ID", "")
 	t.Setenv("ADMIN_ID", "")
 	if _, err := LoadConfig(); err == nil {
 		t.Fatalf("expected error when token and admin id missing")
 	}
 
 	t.Setenv("TELEGRAM_BOT_TOKEN", "token")
+	t.Setenv("OWNER_ID", "")
 	t.Setenv("ADMIN_ID", "")
 	if _, err := LoadConfig(); err == nil {
 		t.Fatalf("expected error when admin id missing")
 	}
 
 	t.Setenv("TELEGRAM_BOT_TOKEN", "token")
-	t.Setenv("ADMIN_ID", "abc")
+	t.Setenv("OWNER_ID", "abc")
 	if _, err := LoadConfig(); err == nil {
 		t.Fatalf("expected error with invalid admin id")
+	}
+}
+
+func TestLoadConfigOwnerFallback(t *testing.T) {
+	t.Setenv("TELEGRAM_BOT_TOKEN", "token")
+	t.Setenv("OWNER_ID", "")
+	t.Setenv("ADMIN_ID", "42")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() unexpected error: %v", err)
+	}
+	if cfg.OwnerID != 42 {
+		t.Fatalf("OwnerID = %d, want 42", cfg.OwnerID)
+	}
+}
+
+func TestLoadConfigInvalidAdminList(t *testing.T) {
+	t.Setenv("TELEGRAM_BOT_TOKEN", "token")
+	t.Setenv("OWNER_ID", "1")
+	t.Setenv("ADMIN_IDS", "5, bad, 7")
+
+	if _, err := LoadConfig(); err == nil {
+		t.Fatalf("expected error when ADMIN_IDS contains invalid values")
 	}
 }
 

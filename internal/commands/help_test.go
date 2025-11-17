@@ -35,7 +35,8 @@ func TestAppendCommandsKeepsSortedOrder(t *testing.T) {
 func TestNewHelpHandlerRendersSections(t *testing.T) {
 	reg := NewRegistry(Dependencies{})
 	reg.Handle("public", "public command", ScopePublic, func(ctx *Context) error { return nil })
-	reg.Handle("admin", "admin command", ScopeAdminOnly, func(ctx *Context) error { return nil })
+	reg.Handle("admin", "admin command", ScopeAdmin, func(ctx *Context) error { return nil })
+	reg.Handle("owner", "owner command", ScopeOwner, func(ctx *Context) error { return nil })
 
 	bot, client := testutil.NewFakeBot()
 	ctx := &Context{
@@ -61,8 +62,10 @@ func TestNewHelpHandlerRendersSections(t *testing.T) {
 	for _, needle := range []string{
 		"<b>Publicos</b>",
 		"<b>Solo administrador</b>",
+		"<b>Solo propietario</b>",
 		"- <b>/public</b> - public command",
 		"- <b>/admin</b> - admin command",
+		"- <b>/owner</b> - owner command",
 		"Desarrollado por DaniMarqz",
 	} {
 		if !strings.Contains(body, needle) {

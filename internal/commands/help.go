@@ -9,7 +9,8 @@ import (
 func NewHelpHandler(registry *Registry) Handler {
 	return func(ctx *Context) error {
 		public := registry.List(ScopePublic)
-		admin := registry.List(ScopeAdminOnly)
+		admin := registry.List(ScopeAdmin)
+		owner := registry.List(ScopeOwner)
 
 		var builder strings.Builder
 		builder.WriteString("<b>Comandos disponibles</b>\n\n")
@@ -23,6 +24,12 @@ func NewHelpHandler(registry *Registry) Handler {
 		if len(admin) > 0 {
 			builder.WriteString("<b>Solo administrador</b>\n")
 			appendCommands(&builder, admin)
+			builder.WriteByte('\n')
+		}
+
+		if len(owner) > 0 {
+			builder.WriteString("<b>Solo propietario</b>\n")
+			appendCommands(&builder, owner)
 			builder.WriteByte('\n')
 		}
 

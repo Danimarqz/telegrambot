@@ -128,10 +128,26 @@ func (c *Context) ReplyError(userMessage string, err error) error {
 	return c.Reply(userMessage)
 }
 
+// IsOwner reports whether the message originates from the owner chat.
+func (c *Context) IsOwner() bool {
+	if c.Update.Message == nil {
+		return false
+	}
+	return c.Update.Message.Chat.ID == c.AppConfig.OwnerID
+}
+
 // IsAdmin reports whether the message originates from the admin chat.
 func (c *Context) IsAdmin() bool {
 	if c.Update.Message == nil {
 		return false
 	}
-	return c.Update.Message.Chat.ID == c.AppConfig.AdminID
+	if c.IsOwner() {
+		return true
+	}
+	for _, id := range c.AppConfig.AdminIDs {
+		if c.Update.Message.Chat.ID == id {
+			return true
+		}
+	}
+	return false
 }

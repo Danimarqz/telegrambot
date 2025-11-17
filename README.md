@@ -5,7 +5,7 @@ Telegram bot written in Go that lets you monitor and operate a Linux server from
 ## Requirements
 
 - Go 1.24 or newer
-- Telegram bot token and admin chat ID
+- Telegram bot token and owner chat ID
 - Access to the binaries invoked by the commands (`docker`, `ping`, `ps`, `nvidia-smi`, etc.)
 - Sufficient privileges to run `sudo reboot` when using `/reboot`
 
@@ -16,7 +16,7 @@ Required environment variables:
 | Variable             | Description                                   |
 |----------------------|-----------------------------------------------|
 | `TELEGRAM_BOT_TOKEN` | Token generated through BotFather             |
-| `ADMIN_ID`           | Numeric ID of the administrator chat          |
+| `OWNER_ID`           | Numeric ID of the owner chat (or set `ADMIN_ID` for compatibility) |
 
 Optional environment variables:
 
@@ -29,6 +29,7 @@ Optional environment variables:
 | `ALERT_CPU_THRESHOLD`      | CPU usage percentage that triggers an alert (default `90`)                                   |
 | `ALERT_MEMORY_THRESHOLD`   | Memory usage percentage that triggers an alert (default `90`)                                |
 | `ALERT_DISK_THRESHOLD`     | Disk usage percentage that triggers an alert for any monitored mount (default `90`)          |
+| `ADMIN_IDS`                | Optional comma-separated admin chat IDs that can access elevated commands                    |
 
 You can export them directly or load them from an `.env` file before starting the bot.
 
@@ -54,20 +55,23 @@ Public:
 - `/help` - show this command catalog
 - `/stats` - system snapshot (CPU, memory, network, disks, GPU, uptime)
 
-Admin only:
+Admin (elevated):
 
 - `/top` - top CPU/memory consuming processes
 - `/docker` - running containers and status
+
+Owner (single owner chat only):
+
 - `/docker_exec <name> <cmd>` - run an arbitrary command inside a container
 - `/docker_logs <name>` - show the last 20 log lines of a container
 - `/logs_suscripcion <name> [duracion]` - poll container logs for a limited time (default 1m, accepts `30s`, `2m`, etc.)
 - `/docker_stats <name>` - CPU, RAM, network, and IO usage for a container
-- `/docker_restart <name>` - restart a Docker container
+- `/docker_restart <name>` - restart a Docker container (`mc-server` only for admin IDs)
 - `/service_status <service>` - short `systemctl status` snippet
 - `/ping <host>` - connectivity test (`8.8.8.8` by default)
 - `/reboot` - reboot the server (requires `sudo` and a confirmation via `/reboot confirmar`)
 
-Each command is registered in a central dispatcher with middleware that validates the administrator before execution.
+Each command is registered in a central dispatcher with middleware that validates the owner or administrator before execution.
 
 ## System metrics
 
@@ -75,7 +79,7 @@ The `internal/metrics` package uses `gopsutil` and samples network/disk IO durin
 
 ## Automatic alerts
 
-When `ENABLE_ALERTS=true`, the bot collects metrics every `ALERT_INTERVAL` and pushes a warning to the admin chat whenever CPU, RAM, or any monitored disk exceeds its threshold. Repeated alerts of the same type respect the `ALERT_COOLDOWN` window to avoid spam.
+When `ENABLE_ALERTS=true`, the bot collects metrics every `ALERT_INTERVAL` and pushes a warning to the owner chat whenever CPU, RAM, or any monitored disk exceeds its threshold. Repeated alerts of the same type respect the `ALERT_COOLDOWN` window to avoid spam.
 
 ## Log subscriptions
 

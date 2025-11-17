@@ -12,7 +12,7 @@ import (
 
 func TestRegistryDispatchFlow(t *testing.T) {
 	reg := NewRegistry(Dependencies{
-		Config: app.Config{AdminID: 999},
+		Config: app.Config{OwnerID: 999},
 	})
 
 	var sequence []string
@@ -95,7 +95,8 @@ func TestRegistryNotFound(t *testing.T) {
 func TestRegistryListFiltersHidden(t *testing.T) {
 	reg := NewRegistry(Dependencies{})
 	reg.Handle("public", "visible", ScopePublic, func(ctx *Context) error { return nil })
-	reg.Handle("admin", "admin command", ScopeAdminOnly, func(ctx *Context) error { return nil })
+	reg.Handle("admin", "admin command", ScopeAdmin, func(ctx *Context) error { return nil })
+	reg.Handle("owner", "owner command", ScopeOwner, func(ctx *Context) error { return nil })
 	reg.HandleHidden("secret", func(ctx *Context) error { return nil })
 
 	public := reg.List(ScopePublic)
@@ -103,7 +104,7 @@ func TestRegistryListFiltersHidden(t *testing.T) {
 		t.Fatalf("public list = %v, want only public", public)
 	}
 
-	admin := reg.List(ScopeAdminOnly)
+	admin := reg.List(ScopeAdmin)
 	if len(admin) != 1 {
 		t.Fatalf("admin list length = %d, want 1", len(admin))
 	}
@@ -116,12 +117,16 @@ func TestRegistryListFiltersHidden(t *testing.T) {
 	if _, ok := admin["public"]; ok {
 		t.Fatalf("public command should not appear in admin list")
 	}
+	owner := reg.List(ScopeOwner)
+	if len(owner) != 1 || owner["owner"] != "owner command" {
+		t.Fatalf("owner list = %v, want only owner", owner)
+	}
 }
 
 func TestAdminOnlyMiddleware(t *testing.T) {
 	bot, client := testutil.NewFakeBot()
 	ctx := &Context{
-		AppConfig: app.Config{AdminID: 1},
+		AppConfig: app.Config{OwnerID: 1, AdminIDs: []int64{2}},
 		Bot:       bot,
 		Update: tgbotapi.Update{
 			Message: &tgbotapi.Message{
@@ -131,13 +136,15 @@ func TestAdminOnlyMiddleware(t *testing.T) {
 	}
 
 	var called bool
-	if err := AdminOnly()(func(ctx *Context) error {
+	handler := func(ctx *Context) error {
 		called = true
 		return nil
-	})(ctx); err != nil {
-		t.Fatalf("AdminOnly() returned error: %v", err)
 	}
 
+	called = false
+	if err := AdminOnly()(handler)(ctx); err != nil {
+		t.Fatalf("AdminOnly() returned error: %v", err)
+	}
 	if called {
 		t.Fatalf("handler invoked for non-admin")
 	}
@@ -145,17 +152,27 @@ func TestAdminOnlyMiddleware(t *testing.T) {
 		t.Fatalf("expected reply to be sent for non-admin")
 	}
 
-	ctx.Update.Message.Chat.ID = 1
-	if err := AdminOnly()(func(ctx *Context) error {
-		called = true
-		return nil
-	})(ctx); err != nil {
-		t.Fatalf("AdminOnly() returned error for admin: %v", err)
+	ctx.Update.Message.Chat.ID = 2
+	called = false
+	if err := AdminOnly()(handler)(ctx); err != nil {
+		t.Fatalf("AdminOnly() returned error for admin ID: %v", err)
 	}
 	if !called {
-		t.Fatalf("handler not invoked for admin")
+		t.Fatalf("handler not invoked for admin ID")
 	}
 	if len(client.Requests()) != 1 {
-		t.Fatalf("unexpected extra request recorded for admin")
+		t.Fatalf("unexpected extra request recorded for admin ID")
+	}
+
+	ctx.Update.Message.Chat.ID = 1
+	called = false
+	if err := AdminOnly()(handler)(ctx); err != nil {
+		t.Fatalf("AdminOnly() returned error for owner: %v", err)
+	}
+	if !called {
+		t.Fatalf("handler not invoked for owner")
+	}
+	if len(client.Requests()) != 1 {
+		t.Fatalf("unexpected extra request recorded for owner")
 	}
 }

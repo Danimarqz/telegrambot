@@ -15,6 +15,9 @@ func DockerRestart(ctx *Context) error {
 	}
 
 	container := args[0]
+	if !ctx.IsOwner() && container != "mc-server" {
+		return ctx.Reply("Solo puedes reiniciar el contenedor \"mc-server\".")
+	}
 
 	runCtx, cancel := system.WithTimeout(ctx.RequestContext, ctx.AppConfig.CommandTimeout)
 	defer cancel()

@@ -33,7 +33,8 @@ type CommandScope int
 
 const (
 	ScopePublic CommandScope = iota
-	ScopeAdminOnly
+	ScopeAdmin
+	ScopeOwner
 )
 
 // Dependencies groups shared dependencies provided to handlers.
@@ -161,6 +162,18 @@ func AdminOnly() Middleware {
 	return func(next Handler) Handler {
 		return func(ctx *Context) error {
 			if !ctx.IsAdmin() {
+				return ctx.Reply("No autorizado.")
+			}
+			return next(ctx)
+		}
+	}
+}
+
+// OwnerOnly middleware rejects non-owner requests.
+func OwnerOnly() Middleware {
+	return func(next Handler) Handler {
+		return func(ctx *Context) error {
+			if !ctx.IsOwner() {
 				return ctx.Reply("No autorizado.")
 			}
 			return next(ctx)

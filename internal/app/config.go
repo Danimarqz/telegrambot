@@ -12,7 +12,8 @@ import (
 // Config groups together the configuration required by the bot.
 type Config struct {
 	Token          string
-	AdminID        int64
+	OwnerID        int64
+	AdminIDs       []int64
 	CommandTimeout time.Duration
 	DiskTargets    []string
 	Alerts         AlertConfig
@@ -36,7 +37,9 @@ const (
 // LoadConfig reads the necessary environment variables and returns a validated Config.
 func LoadConfig() (Config, error) {
 	token := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN"))
-	adminStr := strings.TrimSpace(os.Getenv("ADMIN_ID"))
+	adminIDs := strings.TrimSpace(os.Getenv("ADMIN_IDS"))
+	ownerStr := strings.TrimSpace(os.Getenv("OWNER_ID"))
+	fallbackOwner := strings.TrimSpace(os.Getenv("ADMIN_ID"))
 	diskTargets := strings.TrimSpace(os.Getenv("DISK_TARGETS"))
 	enableAlerts := strings.TrimSpace(os.Getenv("ENABLE_ALERTS"))
 	alertInterval := strings.TrimSpace(os.Getenv("ALERT_INTERVAL"))
@@ -48,18 +51,27 @@ func LoadConfig() (Config, error) {
 	if token == "" {
 		return Config{}, errors.New("missing TELEGRAM_BOT_TOKEN")
 	}
-	if adminStr == "" {
-		return Config{}, errors.New("missing ADMIN_ID")
+	if ownerStr == "" {
+		ownerStr = fallbackOwner
+	}
+	if ownerStr == "" {
+		return Config{}, errors.New("missing OWNER_ID")
 	}
 
-	adminID, err := strconv.ParseInt(adminStr, 10, 64)
+	ownerID, err := strconv.ParseInt(ownerStr, 10, 64)
 	if err != nil {
-		return Config{}, fmt.Errorf("invalid ADMIN_ID: %w", err)
+		return Config{}, fmt.Errorf("invalid OWNER_ID: %w", err)
+	}
+
+	adminIDList, err := parseAdminIDs(adminIDs)
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid ADMIN_IDS: %w", err)
 	}
 
 	cfg := Config{
 		Token:          token,
-		AdminID:        adminID,
+		OwnerID:        ownerID,
+		AdminIDs:       adminIDList,
 		CommandTimeout: defaultCommandTimeout,
 		DiskTargets:    parseDiskTargets(diskTargets),
 		Alerts: AlertConfig{
@@ -99,6 +111,25 @@ func parseDiskTargets(raw string) []string {
 		return []string{defaultDiskTargets}
 	}
 	return targets
+}
+
+func parseAdminIDs(raw string) ([]int64, error) {
+	if raw == "" {
+		return nil, nil
+	}
+
+	parts := strings.Split(raw, ",")
+	ids := make([]int64, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			id, err := strconv.ParseInt(trimmed, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid admin ID %q: %w", trimmed, err)
+			}
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }
 
 func parseBool(raw string) bool {

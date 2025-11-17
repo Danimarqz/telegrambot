@@ -24,6 +24,9 @@ func DockerExec(ctx *Context) error {
 	}
 
 	container := tokens[0]
+	if !ctx.IsOwner() && container != "mc-server" {
+		return ctx.Reply("Solo puedes ejecutar comando en el contenedor \"mc-server\".")
+	}
 	commandArgs := tokens[1:]
 
 	runCtx, cancel := system.WithTimeout(ctx.RequestContext, ctx.AppConfig.CommandTimeout)

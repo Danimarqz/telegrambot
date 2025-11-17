@@ -97,16 +97,16 @@ func registerCommands(registry *commands.Registry, collector *metrics.Collector)
 	registry.Handle("help", "Muestra esta ayuda", commands.ScopePublic, commands.NewHelpHandler(registry))
 	registry.Handle("stats", "Uso de CPU, RAM, red, discos y GPU", commands.ScopePublic, commands.NewStatsHandler(collector))
 
-	registry.Handle("top", "Procesos con mayor uso de CPU/RAM", commands.ScopeAdminOnly, commands.Top, commands.AdminOnly())
-	registry.Handle("docker", "Contenedores activos y estado", commands.ScopeAdminOnly, commands.Docker, commands.AdminOnly())
-	registry.Handle("docker_exec", "Ejecuta un comando en un contenedor Docker", commands.ScopeAdminOnly, commands.DockerExec, commands.AdminOnly())
-	registry.Handle("docker_logs", "Ultimas 20 lineas del log de un contenedor", commands.ScopeAdminOnly, commands.DockerLogs, commands.AdminOnly())
-	registry.Handle("logs_suscripcion", "Envia actualizaciones periodicas de logs", commands.ScopeAdminOnly, commands.DockerLogsSubscribe, commands.AdminOnly())
-	registry.Handle("docker_stats", "Uso de recursos de un contenedor", commands.ScopeAdminOnly, commands.DockerStats, commands.AdminOnly())
-	registry.Handle("docker_restart", "Reinicia un contenedor Docker", commands.ScopeAdminOnly, commands.DockerRestart, commands.AdminOnly())
-	registry.Handle("service_status", "Estado de un servicio systemd", commands.ScopeAdminOnly, commands.ServiceStatus, commands.AdminOnly())
-	registry.Handle("ping", "Prueba de conectividad", commands.ScopeAdminOnly, commands.Ping, commands.AdminOnly())
-	registry.Handle("reboot", "Reinicia el servidor", commands.ScopeAdminOnly, commands.Reboot, commands.AdminOnly())
+	registry.Handle("top", "Procesos con mayor uso de CPU/RAM", commands.ScopeAdmin, commands.Top, commands.AdminOnly())
+	registry.Handle("docker", "Contenedores activos y estado", commands.ScopeAdmin, commands.Docker, commands.AdminOnly())
+	registry.Handle("docker_exec", "Ejecuta un comando en un contenedor Docker", commands.ScopeAdmin, commands.DockerExec, commands.AdminOnly())
+	registry.Handle("docker_logs", "Ultimas 20 lineas del log de un contenedor", commands.ScopeOwner, commands.DockerLogs, commands.OwnerOnly())
+	registry.Handle("logs_suscripcion", "Envia actualizaciones periodicas de logs", commands.ScopeOwner, commands.DockerLogsSubscribe, commands.OwnerOnly())
+	registry.Handle("docker_stats", "Uso de recursos de un contenedor", commands.ScopeOwner, commands.DockerStats, commands.OwnerOnly())
+	registry.Handle("docker_restart", "Reinicia un contenedor Docker", commands.ScopeOwner, commands.DockerRestart, commands.AdminOnly())
+	registry.Handle("service_status", "Estado de un servicio systemd", commands.ScopeOwner, commands.ServiceStatus, commands.OwnerOnly())
+	registry.Handle("ping", "Prueba de conectividad", commands.ScopeOwner, commands.Ping, commands.OwnerOnly())
+	registry.Handle("reboot", "Reinicia el servidor", commands.ScopeOwner, commands.Reboot, commands.OwnerOnly())
 }
 
 func logCommand(logger *log.Logger) commands.Middleware {
@@ -125,7 +125,7 @@ func (r *Runner) startAlerts(ctx context.Context, bot *tgbotapi.BotAPI, collecto
 		return
 	}
 
-	if cfg.AdminID == 0 {
+	if cfg.OwnerID == 0 {
 		return
 	}
 
@@ -194,7 +194,7 @@ func (r *Runner) runAlertCycle(ctx context.Context, bot *tgbotapi.BotAPI, collec
 			continue
 		}
 
-		if err := sendAlert(bot, cfg.AdminID, a.body); err != nil && r.logger != nil {
+		if err := sendAlert(bot, cfg.OwnerID, a.body); err != nil && r.logger != nil {
 			r.logger.Printf("alert send error: %v", err)
 		} else {
 			state[a.key] = now

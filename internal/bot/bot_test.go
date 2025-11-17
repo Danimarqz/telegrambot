@@ -89,7 +89,7 @@ func TestSendAlert(t *testing.T) {
 
 func TestRegisterCommandsCatalog(t *testing.T) {
 	reg := commands.NewRegistry(commands.Dependencies{
-		Config: app.Config{AdminID: 123},
+		Config: app.Config{OwnerID: 123},
 	})
 	collector := metrics.NewCollector(metrics.Options{})
 
@@ -106,14 +106,25 @@ func TestRegisterCommandsCatalog(t *testing.T) {
 		t.Fatalf("stats command missing from public list")
 	}
 
-	admin := reg.List(commands.ScopeAdminOnly)
-	expectedAdmin := []string{"top", "docker", "docker_exec", "docker_logs", "logs_suscripcion", "docker_stats", "docker_restart", "service_status", "ping", "reboot"}
+	admin := reg.List(commands.ScopeAdmin)
+	expectedAdmin := []string{"top", "docker", "docker_exec"}
 	if len(admin) != len(expectedAdmin) {
 		t.Fatalf("admin commands length = %d, want %d", len(admin), len(expectedAdmin))
 	}
 	for _, name := range expectedAdmin {
 		if _, ok := admin[name]; !ok {
 			t.Fatalf("admin command %q missing from registry", name)
+		}
+	}
+
+	owner := reg.List(commands.ScopeOwner)
+	expectedOwner := []string{"docker_logs", "logs_suscripcion", "docker_stats", "docker_restart", "service_status", "ping", "reboot"}
+	if len(owner) != len(expectedOwner) {
+		t.Fatalf("owner commands length = %d, want %d", len(owner), len(expectedOwner))
+	}
+	for _, name := range expectedOwner {
+		if _, ok := owner[name]; !ok {
+			t.Fatalf("owner command %q missing from registry", name)
 		}
 	}
 }
