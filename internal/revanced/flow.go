@@ -264,6 +264,25 @@ func (s *Service) runResolve(ctx context.Context, bot *tgbotapi.BotAPI, chatID i
 		return
 	}
 
+	// Check if serve dir already has patched APKs matching the resolved versions.
+	// If so, skip the entire build and send download links immediately.
+	if s.ServeDir != "" {
+		resolvedAPKs := make([]RequiredAPK, len(versions))
+		for i, v := range versions {
+			resolvedAPKs[i] = RequiredAPK{
+				PackageName: v.PackageName,
+				AppName:     v.AppName,
+				Version:     v.Version,
+				Received:    true,
+			}
+		}
+		if names := s.alreadyPublished(resolvedAPKs); len(names) > 0 {
+			_ = s.Store.Save(State{Phase: PhaseIdle})
+			_ = editText(bot, chatID, editMsgID, s.formatPublished("Ya publicado (misma version)", names))
+			return
+		}
+	}
+
 	// Determine which APKs are already present vs. needed.
 	var required []RequiredAPK
 	var present []string
@@ -337,49 +356,181 @@ func (s *Service) runResolve(ctx context.Context, bot *tgbotapi.BotAPI, chatID i
 }
 
 // runBuild executes the full build, publishes APKs, and notifies the chat.
+// It streams container output and updates a single Telegram message with progress.
 func (s *Service) runBuild(ctx context.Context, bot *tgbotapi.BotAPI, chatID int64) {
 	s.stopTimer()
 
 	st, loadErr := s.Store.Load()
-	apps := ""
+	appNames := []string{}
 	if loadErr == nil {
-		apps = strings.Join(receivedAppNames(st.RequiredAPKs), ",")
+		appNames = receivedAppNames(st.RequiredAPKs)
+	}
+	apps := strings.Join(appNames, ",")
+	total := len(appNames)
+
+	sent, sendErr := sendTextMsg(bot, chatID, "Iniciando build...")
+	if sendErr != nil {
+		s.log("send error: %v", sendErr)
+		return
+	}
+	msgID := sent.MessageID
+
+	var (
+		statusMu     sync.Mutex
+		lastStatus   string
+		lastEditAt   time.Time
+		done         int
+		editThrottle = time.Second
+	)
+
+	setStatus := func(text string) {
+		statusMu.Lock()
+		defer statusMu.Unlock()
+		if text == lastStatus {
+			return
+		}
+		lastStatus = text
+		if time.Since(lastEditAt) < editThrottle {
+			return
+		}
+		_ = editText(bot, chatID, msgID, text)
+		lastEditAt = time.Now()
 	}
 
-	output, err := Build(ctx, s.RepoDir, apps)
+	onLine := func(line string) {
+		switch {
+		case strings.HasPrefix(line, "Trying to build "):
+			app := strings.TrimPrefix(line, "Trying to build ")
+			setStatus(fmt.Sprintf("Parcheando <b>%s</b> (%d/%d)...",
+				html.EscapeString(app), done+1, total))
+		case strings.Contains(line, "INFO: Compiling modified resources"):
+			setStatus(fmt.Sprintf("Compilando recursos (%d/%d)...", done+1, total))
+		case strings.Contains(line, "INFO: Writing resource APK"):
+			setStatus(fmt.Sprintf("Escribiendo APK (%d/%d)...", done+1, total))
+		case strings.Contains(line, "INFO: Aligning APK"):
+			setStatus(fmt.Sprintf("Alineando APK (%d/%d)...", done+1, total))
+		case strings.Contains(line, "INFO: Signing APK"):
+			setStatus(fmt.Sprintf("Firmando (%d/%d)...", done+1, total))
+		case strings.Contains(line, "Successfully completed"):
+			statusMu.Lock()
+			done++
+			statusMu.Unlock()
+			setStatus(fmt.Sprintf("%d/%d apps parcheadas...", done, total))
+		case strings.Contains(line, "FAILED"):
+			setStatus(fmt.Sprintf("Fallo detectado (%d/%d)...", done, total))
+		}
+	}
+
+	err := Build(ctx, s.RepoDir, apps, onLine)
 	if err != nil {
 		s.log("build error: %v", err)
 		_ = s.Store.Save(State{Phase: PhaseIdle, Error: err.Error()})
-		// Truncate output for the message.
 		errMsg := err.Error()
 		if len(errMsg) > 3000 {
 			errMsg = errMsg[:3000] + "\n..."
 		}
-		_ = sendText(bot, chatID, fmt.Sprintf("Error en build:\n<pre>%s</pre>", html.EscapeString(errMsg)))
+		_ = editText(bot, chatID, msgID, fmt.Sprintf("Build fallido:\n<pre>%s</pre>", html.EscapeString(errMsg)))
 		return
 	}
-	_ = output // build log not needed on success
 
 	published, err := Publish(s.RepoDir, s.ServeDir)
 	if err != nil {
 		s.log("publish error: %v", err)
 		_ = s.Store.Save(State{Phase: PhaseIdle, Error: err.Error()})
-		_ = sendText(bot, chatID, fmt.Sprintf("Build exitoso pero error al publicar: %s", err))
+		_ = editText(bot, chatID, msgID, fmt.Sprintf("Build exitoso pero error al publicar: %s", err))
 		return
 	}
 
 	_ = s.Store.Save(State{Phase: PhaseIdle})
+	_ = editText(bot, chatID, msgID, s.formatPublished("Build ReVanced OK", published))
+}
 
-	var b strings.Builder
-	b.WriteString("<b>Build completado</b>\n\n")
-	for _, name := range published {
-		if s.BaseURL != "" {
-			b.WriteString(fmt.Sprintf("- <a href=\"%s/%s\">%s</a>\n", s.BaseURL, name, html.EscapeString(name)))
-		} else {
-			b.WriteString(fmt.Sprintf("- %s\n", html.EscapeString(name)))
+// alreadyPublished checks if the serve dir already contains patched APKs
+// whose versions match every required app.  It parses the version from the
+// filename pattern Re<app_name>-Version<version>-...-output.apk instead
+// of reading APK metadata (which may differ in patched APKs).
+// Returns the list of filenames if all match, or nil otherwise.
+func (s *Service) alreadyPublished(required []RequiredAPK) []string {
+	existing, err := filepath.Glob(filepath.Join(s.ServeDir, "Re*-output.apk"))
+	if err != nil || len(existing) == 0 {
+		return nil
+	}
+
+	// Build a map: app_name → required version.
+	want := make(map[string]string)
+	for _, r := range required {
+		if r.AppName != "" {
+			want[strings.ToLower(r.AppName)] = r.Version
 		}
 	}
-	_ = sendHTML(bot, chatID, b.String())
+	if len(want) == 0 {
+		return nil
+	}
+
+	// Parse each filename: Re<app>-Version<ver>-...-output.apk
+	matched := 0
+	var names []string
+	for _, path := range existing {
+		appName, ver := parseOutputFilename(filepath.Base(path))
+		if appName == "" {
+			continue
+		}
+		if reqVer, ok := want[strings.ToLower(appName)]; ok && reqVer == ver {
+			matched++
+			names = append(names, filepath.Base(path))
+		}
+	}
+
+	// Also include MicroG if present.
+	extras, _ := filepath.Glob(filepath.Join(s.ServeDir, "VancedMicroG*.apk"))
+	for _, p := range extras {
+		names = append(names, filepath.Base(p))
+	}
+
+	if matched < len(want) {
+		return nil
+	}
+	return names
+}
+
+// parseOutputFilename extracts app name and version from a patched APK
+// filename like "Reyoutube-Version20.45.36-PatchVersion...-output.apk".
+// Returns ("youtube", "20.45.36") or ("", "") if the pattern doesn't match.
+func parseOutputFilename(name string) (appName, version string) {
+	// Must start with "Re" and end with "-output.apk"
+	if !strings.HasPrefix(name, "Re") || !strings.HasSuffix(name, "-output.apk") {
+		return "", ""
+	}
+	// Strip "Re" prefix
+	rest := name[2:]
+	// Split on "-Version" to get app name and the rest
+	idx := strings.Index(rest, "-Version")
+	if idx < 0 {
+		return "", ""
+	}
+	appName = rest[:idx]
+	// After "-Version", extract until next "-"
+	verRest := rest[idx+len("-Version"):]
+	dashIdx := strings.Index(verRest, "-")
+	if dashIdx < 0 {
+		return "", ""
+	}
+	version = verRest[:dashIdx]
+	return appName, version
+}
+
+// formatPublished builds an HTML message with a title and download links.
+func (s *Service) formatPublished(title string, fileNames []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "<b>%s</b>\n\n", html.EscapeString(title))
+	for _, name := range fileNames {
+		if s.BaseURL != "" {
+			fmt.Fprintf(&b, "- <a href=\"%s/%s\">%s</a>\n", s.BaseURL, name, html.EscapeString(name))
+		} else {
+			fmt.Fprintf(&b, "- %s\n", html.EscapeString(name))
+		}
+	}
+	return b.String()
 }
 
 func (s *Service) log(format string, args ...any) {
@@ -393,6 +544,12 @@ func sendText(bot *tgbotapi.BotAPI, chatID int64, text string) error {
 	msg.ParseMode = "HTML"
 	_, err := bot.Send(msg)
 	return err
+}
+
+func sendTextMsg(bot *tgbotapi.BotAPI, chatID int64, text string) (tgbotapi.Message, error) {
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "HTML"
+	return bot.Send(msg)
 }
 
 func sendHTML(bot *tgbotapi.BotAPI, chatID int64, body string) error {

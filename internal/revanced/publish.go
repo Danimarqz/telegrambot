@@ -22,6 +22,12 @@ func Publish(repoDir, serveDir string) ([]string, error) {
 		return nil, fmt.Errorf("create serve dir: %w", err)
 	}
 
+	// Remove previous build outputs from serve dir before copying.
+	oldPublished, _ := filepath.Glob(filepath.Join(serveDir, "Re*-output.apk"))
+	for _, p := range oldPublished {
+		_ = os.Remove(p)
+	}
+
 	var published []string
 	for _, src := range apks {
 		name := filepath.Base(src)

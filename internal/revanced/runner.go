@@ -1,6 +1,7 @@
 package revanced
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -55,15 +56,25 @@ func Resolve(ctx context.Context, repoDir string) ([]VersionEntry, error) {
 // Build runs the full revanced build pipeline inside docker compose.
 // apps is the comma-separated list of app names to patch (e.g. "youtube,youtube_music").
 // When empty the container falls back to its .env defaults.
-func Build(ctx context.Context, repoDir string, apps string) (string, error) {
+// onLine is called for every stdout/stderr line emitted by the container.
+func Build(ctx context.Context, repoDir string, apps string, onLine func(string)) error {
 	ctx, cancel := context.WithTimeout(ctx, buildTimeout)
 	defer cancel()
+
+	// Wipe previous outputs so this build's glob is unambiguous.
+	apksDir := filepath.Join(repoDir, "apks")
+	oldOutputs, _ := filepath.Glob(filepath.Join(apksDir, "Re*-output.apk"))
+	for _, p := range oldOutputs {
+		_ = os.Remove(p)
+	}
 
 	args := []string{
 		"compose",
 		"-f", filepath.Join(repoDir, "docker-compose-local.yml"),
 		"--profile", "build", "run", "--rm",
 	}
+	// Force unbuffered Python output so we get streaming progress.
+	args = append(args, "-e", "PYTHONUNBUFFERED=1")
 	if apps != "" {
 		args = append(args, "-e", "PATCH_APPS="+apps)
 		args = append(args, "-e", "EXISTING_DOWNLOADED_APKS="+apps)
@@ -72,12 +83,29 @@ func Build(ctx context.Context, repoDir string, apps string) (string, error) {
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Dir = repoDir
-	out, err := cmd.CombinedOutput()
-	output := string(out)
+
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return output, fmt.Errorf("build: %w\n%s", err, output)
+		return fmt.Errorf("stdout pipe: %w", err)
 	}
-	return output, nil
+	cmd.Stderr = cmd.Stdout // merge stderr into stdout
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start build: %w", err)
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	for scanner.Scan() {
+		if onLine != nil {
+			onLine(scanner.Text())
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("build: %w", err)
+	}
+	return nil
 }
 
 // BuiltAPKs returns only the patched output APKs (Re*-output.apk) and
