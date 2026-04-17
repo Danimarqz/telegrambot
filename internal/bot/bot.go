@@ -10,6 +10,7 @@ import (
 	"serverbot/internal/app"
 	"serverbot/internal/commands"
 	"serverbot/internal/metrics"
+	"serverbot/internal/revanced"
 	"serverbot/internal/system"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -39,7 +40,12 @@ func (r *Runner) Run(ctx context.Context) error {
 		return err
 	}
 
-	botAPI, err := tgbotapi.NewBotAPI(cfg.Token)
+	var botAPI *tgbotapi.BotAPI
+	if cfg.TelegramAPIURL != "" {
+		botAPI, err = tgbotapi.NewBotAPIWithAPIEndpoint(cfg.Token, cfg.TelegramAPIURL+"/bot%s/%s")
+	} else {
+		botAPI, err = tgbotapi.NewBotAPI(cfg.Token)
+	}
 	if err != nil {
 		return fmt.Errorf("create bot api: %w", err)
 	}
@@ -58,7 +64,13 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 
 	registry := commands.NewRegistry(deps)
-	registerCommands(registry, collector)
+
+	var revSvc *revanced.Service
+	if cfg.RevancedRepo != "" && cfg.RevancedStateFile != "" {
+		revSvc = revanced.NewService(cfg.RevancedStateFile, cfg.RevancedRepo, cfg.RevancedServeDir, cfg.RevancedNginxBaseURL, r.logger)
+	}
+
+	registerCommands(registry, collector, revSvc)
 
 	registry.SetNotFound(func(ctx *commands.Context) error {
 		return ctx.Reply("Comando no reconocido.")
@@ -83,6 +95,14 @@ func (r *Runner) Run(ctx context.Context) error {
 			if update.Message == nil {
 				continue
 			}
+
+			// Intercept document uploads for revanced APK pipeline.
+			if revSvc != nil && update.Message.Document != nil && update.Message.Chat.ID == cfg.OwnerID {
+				if revSvc.HandleDocument(ctx, botAPI, update, r.logger) {
+					continue
+				}
+			}
+
 			if !update.Message.IsCommand() {
 				continue
 			}
@@ -93,7 +113,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 }
 
-func registerCommands(registry *commands.Registry, collector *metrics.Collector) {
+func registerCommands(registry *commands.Registry, collector *metrics.Collector, revSvc *revanced.Service) {
 	registry.Handle("help", "Muestra esta ayuda", commands.ScopePublic, commands.NewHelpHandler(registry))
 	registry.Handle("stats", "Uso de CPU, RAM, red, discos y GPU", commands.ScopePublic, commands.NewStatsHandler(collector))
 
@@ -108,6 +128,12 @@ func registerCommands(registry *commands.Registry, collector *metrics.Collector)
 	registry.Handle("service_status", "Estado de un servicio systemd", commands.ScopeOwner, commands.ServiceStatus, commands.OwnerOnly())
 	registry.Handle("ping", "Prueba de conectividad", commands.ScopeOwner, commands.Ping, commands.OwnerOnly())
 	registry.Handle("reboot", "Reinicia el servidor", commands.ScopeOwner, commands.Reboot, commands.OwnerOnly())
+
+	if revSvc != nil {
+		registry.Handle("revanced_build", "Inicia el pipeline de build de ReVanced", commands.ScopeOwner, revSvc.HandleBuild, commands.OwnerOnly())
+		registry.Handle("revanced_status", "Muestra el estado del pipeline de ReVanced", commands.ScopeOwner, revSvc.HandleStatus, commands.OwnerOnly())
+		registry.Handle("revanced_cancel", "Cancela el pipeline de ReVanced", commands.ScopeOwner, revSvc.HandleCancel, commands.OwnerOnly())
+	}
 }
 
 func logCommand(logger *log.Logger) commands.Middleware {

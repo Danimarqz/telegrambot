@@ -17,6 +17,15 @@ type Config struct {
 	CommandTimeout time.Duration
 	DiskTargets    []string
 	Alerts         AlertConfig
+
+	// TelegramAPIURL overrides the Telegram Bot API endpoint (local sidecar).
+	TelegramAPIURL string
+
+	// Revanced build pipeline configuration.
+	RevancedRepo         string // Path to the revanced-builder repo checkout.
+	RevancedServeDir     string // Directory where built APKs are copied for serving.
+	RevancedNginxBaseURL string // Public base URL exposed by Nginx for downloads.
+	RevancedStateFile    string // Path to the JSON state file (flock-protected).
 }
 
 // AlertConfig contains settings for automatic alert notifications.
@@ -69,11 +78,16 @@ func LoadConfig() (Config, error) {
 	}
 
 	cfg := Config{
-		Token:          token,
-		OwnerID:        ownerID,
-		AdminIDs:       adminIDList,
-		CommandTimeout: defaultCommandTimeout,
-		DiskTargets:    parseDiskTargets(diskTargets),
+		Token:                token,
+		OwnerID:              ownerID,
+		AdminIDs:             adminIDList,
+		CommandTimeout:       defaultCommandTimeout,
+		DiskTargets:          parseDiskTargets(diskTargets),
+		TelegramAPIURL:       strings.TrimSpace(os.Getenv("TELEGRAM_BOT_API_URL")),
+		RevancedRepo:         strings.TrimSpace(os.Getenv("REVANCED_REPO")),
+		RevancedServeDir:     strings.TrimSpace(os.Getenv("REVANCED_SERVE_DIR")),
+		RevancedNginxBaseURL: strings.TrimSpace(os.Getenv("REVANCED_NGINX_BASE_URL")),
+		RevancedStateFile:    strings.TrimSpace(os.Getenv("REVANCED_STATE_FILE")),
 		Alerts: AlertConfig{
 			Enabled:         parseBool(enableAlerts),
 			Interval:        parseDuration(alertInterval, time.Minute),

@@ -4,7 +4,9 @@ go 1.24.0
 
 require (
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
+	github.com/gofrs/flock v0.13.0
 	github.com/shirou/gopsutil/v4 v4.25.10
+	github.com/shogo82148/androidbinary v1.0.5
 )
 
 require (

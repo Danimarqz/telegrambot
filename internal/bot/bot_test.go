@@ -93,7 +93,7 @@ func TestRegisterCommandsCatalog(t *testing.T) {
 	})
 	collector := metrics.NewCollector(metrics.Options{})
 
-	registerCommands(reg, collector)
+	registerCommands(reg, collector, nil)
 
 	public := reg.List(commands.ScopePublic)
 	if len(public) != 2 {

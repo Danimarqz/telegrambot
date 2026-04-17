@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_claude-mem_mcp-search__smart_outline",
+      "Bash(go get *)",
+      "Bash(go build *)",
+      "Bash(go mod *)",
+      "Bash(go test *)",
+      "Bash(go vet *)"
+    ]
+  }
+}

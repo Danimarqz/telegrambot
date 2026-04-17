@@ -32,6 +32,11 @@ Optional environment variables:
 | `ADMIN_IDS`                | Optional comma-separated admin chat IDs that can access elevated commands                    |
 | `MC_SERVER_RUN_ARGS`       | `docker run` arguments (after `run`) used to spin up `mc-server` when it is missing          |
 | `MC_SERVER_MOD_RUN_ARGS`   | `docker run` arguments (after `run`) used to spin up `mc-server-mod` when it is missing      |
+| `TELEGRAM_BOT_API_URL`     | Base URL of a local Telegram Bot API sidecar (e.g. `http://localhost:8081`). When set, file downloads use local paths |
+| `REVANCED_REPO`            | Path to the revanced-builder repository checkout                                             |
+| `REVANCED_SERVE_DIR`       | Directory where built APKs are copied for serving via Nginx                                  |
+| `REVANCED_NGINX_BASE_URL`  | Public base URL exposed by Nginx for APK downloads                                           |
+| `REVANCED_STATE_FILE`      | Path to the JSON file used to persist pipeline state (flock-protected)                       |
 
 You can export them directly or load them from an `.env` file before starting the bot.
 
@@ -73,6 +78,9 @@ Owner (single owner chat only):
 - `/service_status <service>` - short `systemctl status` snippet
 - `/ping <host>` - connectivity test (`8.8.8.8` by default)
 - `/reboot` - reboot the server (requires `sudo` and a confirmation via `/reboot confirmar`)
+- `/revanced_build` - start the ReVanced build pipeline (resolve → upload APKs → build → publish)
+- `/revanced_status` - show the current state of the ReVanced pipeline
+- `/revanced_cancel` - reset the pipeline to idle
 
 Each command is registered in a central dispatcher with middleware that validates the owner or administrator before execution.
 
@@ -87,6 +95,16 @@ When `ENABLE_ALERTS=true`, the bot collects metrics every `ALERT_INTERVAL` and p
 ## Log subscriptions
 
 `/logs_suscripcion` creates a temporary watcher that polls the last 20 lines of `docker logs` every 10 seconds and sends only the new content. The subscription ends automatically when the configured duration elapses or the bot stops.
+
+## ReVanced build pipeline
+
+When the `REVANCED_*` environment variables are configured, the bot exposes three commands to drive a ReVanced build from Telegram. The pipeline follows a state machine (`idle → resolving → awaiting_apks → building → idle`) persisted in a JSON file protected by a file lock.
+
+1. `/revanced_build` runs the resolver (`--resolve-only`) via `docker compose` to determine which APK versions are needed.
+2. If any APK is missing, the bot asks the owner to upload them as Telegram documents. Each upload is validated (package name + version) using `androidbinary` and copied to `$REVANCED_REPO/apks/`.
+3. Once all APKs are present the full build runs (15 min timeout). Built APKs are copied to `$REVANCED_SERVE_DIR` and download links are posted.
+
+A local Telegram Bot API sidecar (`TELEGRAM_BOT_API_URL`) is recommended so that uploaded files are accessible as local paths without an HTTP download.
 
 ## Development
 
