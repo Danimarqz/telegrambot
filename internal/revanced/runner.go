@@ -14,6 +14,7 @@ import (
 const (
 	resolveTimeout = 5 * time.Minute
 	buildTimeout   = 15 * time.Minute
+	mergeTimeout   = 5 * time.Minute
 )
 
 // VersionEntry mirrors one element of the resolver's versions.json output.
@@ -104,6 +105,35 @@ func Build(ctx context.Context, repoDir string, apps string, onLine func(string)
 
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("build: %w", err)
+	}
+	return nil
+}
+
+// MergeAPKM runs APKEditor inside the revanced container to merge an
+// APKMirror bundle (apkmName, e.g. "youtube.apkm") into a universal APK
+// (apkName, e.g. "youtube.apk"). Both paths are basenames relative to
+// repoDir/apks/, since that directory is bind-mounted into the container.
+// APKEditor.jar is expected at apks/apkeditor-output.jar (pulled by the
+// resolver during the first run).
+func MergeAPKM(ctx context.Context, repoDir, apkmName, apkName string) error {
+	ctx, cancel := context.WithTimeout(ctx, mergeTimeout)
+	defer cancel()
+
+	script := fmt.Sprintf(
+		"java -jar apks/apkeditor-output.jar m -i apks/%s -o apks/%s -f",
+		apkmName, apkName,
+	)
+	cmd := exec.CommandContext(ctx, "docker", "compose",
+		"-f", filepath.Join(repoDir, "docker-compose-local.yml"),
+		"--profile", "build", "run", "--rm",
+		"--entrypoint", "bash",
+		"revanced",
+		"-c", script,
+	)
+	cmd.Dir = repoDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("merge apkm: %w\n%s", err, string(out))
 	}
 	return nil
 }

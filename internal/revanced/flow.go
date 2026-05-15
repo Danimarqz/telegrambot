@@ -165,7 +165,9 @@ func (s *Service) HandleDocument(ctx context.Context, bot *tgbotapi.BotAPI, upda
 	}
 
 	doc := update.Message.Document
-	if !strings.HasSuffix(strings.ToLower(doc.FileName), ".apk") {
+	nameLower := strings.ToLower(doc.FileName)
+	isAPKM := strings.HasSuffix(nameLower, ".apkm")
+	if !isAPKM && !strings.HasSuffix(nameLower, ".apk") {
 		return false
 	}
 
@@ -193,10 +195,56 @@ func (s *Service) HandleDocument(ctx context.Context, bot *tgbotapi.BotAPI, upda
 		localPath = tmp
 	}
 
-	info, err := ReadAPKInfo(localPath)
+	info, err := ReadBundleInfo(localPath)
 	if err != nil {
 		s.log("readAPK error: %v", err)
 		_ = sendText(bot, update.Message.Chat.ID, fmt.Sprintf("No se pudo leer el APK: %s", err))
+		return true
+	}
+
+	// Locate the matching slot first (read-only) so we can do any heavy
+	// work (e.g. APKEditor merge for .apkm bundles) without holding the
+	// state-store write lock.
+	var matchedApp string
+	for _, ra := range st.RequiredAPKs {
+		if ra.PackageName == info.PackageName && ra.Version == info.VersionName {
+			matchedApp = ra.AppName
+			break
+		}
+	}
+
+	if matchedApp == "" {
+		_ = sendText(bot, update.Message.Chat.ID,
+			fmt.Sprintf("APK <code>%s</code> v%s no coincide con ninguno requerido.",
+				html.EscapeString(info.PackageName), html.EscapeString(info.VersionName)))
+		return true
+	}
+
+	apkDst := filepath.Join(s.RepoDir, "apks", matchedApp+".apk")
+	if isAPKM {
+		// Pause the build-partial timer while the merge runs: APKEditor
+		// can take 10-30s and we don't want it to fire mid-merge.
+		s.stopTimer()
+		_ = sendText(bot, update.Message.Chat.ID,
+			fmt.Sprintf("APKM <code>%s</code> v%s recibido. Mergeando con APKEditor...",
+				html.EscapeString(info.PackageName), html.EscapeString(info.VersionName)))
+
+		apkmDst := filepath.Join(s.RepoDir, "apks", matchedApp+".apkm")
+		if cpErr := copyFile(localPath, apkmDst); cpErr != nil {
+			s.log("copy apkm: %v", cpErr)
+			_ = sendText(bot, update.Message.Chat.ID, fmt.Sprintf("Error copiando APKM: %s", cpErr))
+			return true
+		}
+		if mErr := MergeAPKM(ctx, s.RepoDir, matchedApp+".apkm", matchedApp+".apk"); mErr != nil {
+			s.log("merge apkm: %v", mErr)
+			_ = os.Remove(apkmDst)
+			_ = sendText(bot, update.Message.Chat.ID, fmt.Sprintf("Error mergeando APKM: %s", mErr))
+			return true
+		}
+		_ = os.Remove(apkmDst)
+	} else if cpErr := copyFile(localPath, apkDst); cpErr != nil {
+		s.log("copy apk: %v", cpErr)
+		_ = sendText(bot, update.Message.Chat.ID, fmt.Sprintf("Error copiando APK: %s", cpErr))
 		return true
 	}
 
@@ -206,12 +254,6 @@ func (s *Service) HandleDocument(ctx context.Context, bot *tgbotapi.BotAPI, upda
 		for i := range state.RequiredAPKs {
 			ra := &state.RequiredAPKs[i]
 			if ra.PackageName == info.PackageName && ra.Version == info.VersionName {
-				// Copy APK using app_name (e.g. youtube.apk), not package_name,
-				// because the Python builder expects <app_name>.apk.
-				dst := filepath.Join(s.RepoDir, "apks", ra.AppName+".apk")
-				if cpErr := copyFile(localPath, dst); cpErr != nil {
-					return fmt.Errorf("copiar APK: %w", cpErr)
-				}
 				ra.Received = true
 				matched = true
 			}
